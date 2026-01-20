@@ -49,6 +49,17 @@ class HwpXpressApp:
         self.convert_btn = ttk.Button(button_frame, text="Start Conversion", command=self.start_conversion)
         self.convert_btn.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+        # Progress Bar
+        progress_frame = ttk.Frame(self.root, padding="0 5")
+        progress_frame.pack(fill=tk.X, padx=10)
+        
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
+        self.progress_bar.pack(fill=tk.X)
+        
+        self.status_label = ttk.Label(progress_frame, text="Ready")
+        self.status_label.pack(anchor=tk.W)
+
         # Log Area
         log_frame = ttk.LabelFrame(self.root, text="Logs", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -66,6 +77,12 @@ class HwpXpressApp:
         if foldername:
             self.path_var.set(foldername)
 
+    def update_progress(self, current, total):
+        percentage = (current / total) * 100
+        self.progress_var.set(percentage)
+        self.status_label.config(text=f"Processing: {current}/{total} ({percentage:.1f}%)")
+        self.root.update_idletasks() # Force UI update
+
     def start_conversion(self):
         if self.is_converting:
             return
@@ -78,8 +95,11 @@ class HwpXpressApp:
         self.is_converting = True
         self.convert_btn.config(state='disabled')
         self.log_area.configure(state='normal')
-        self.log_area.delete(1.0, tk.END)
+        self.log_area.insert(tk.END, f"\n{'='*40}\nStarting new conversion...\n{'='*40}\n")
         self.log_area.configure(state='disabled')
+        self.log_area.see(tk.END)
+        self.progress_var.set(0)
+        self.status_label.config(text="Starting...")
         
         thread = threading.Thread(target=self.run_conversion_process, args=(target_path,))
         thread.start()
@@ -87,9 +107,19 @@ class HwpXpressApp:
     def run_conversion_process(self, target_path):
         try:
             if os.path.isfile(target_path):
+                self.update_progress(0, 1)
                 self.converter.convert_to_hwpx(target_path)
+                self.update_progress(1, 1)
             elif os.path.isdir(target_path):
-                self.converter.convert_directory(target_path)
+                # Pass the update_progress method as callback
+                # Since update_progress interacts with GUI, it should technically be scheduled
+                # But tkinter usually handles simple var updates from threads loosely or we can use root.after
+                # For safety/correctness, let's wrap it slightly if needed, but direct call often works for simple DoubleVar.
+                # A safer way:
+                def safe_callback(c, t):
+                    self.root.after(0, lambda: self.update_progress(c, t))
+                
+                self.converter.convert_directory(target_path, progress_callback=safe_callback)
             else:
                 self.logger.error(f"Invalid path: {target_path}")
         except Exception as e:
@@ -100,6 +130,7 @@ class HwpXpressApp:
 
     def enable_button(self):
         self.convert_btn.config(state='normal')
+        self.status_label.config(text="Conversion Complete")
         messagebox.showinfo("Complete", "Conversion process finished.")
 
 if __name__ == "__main__":

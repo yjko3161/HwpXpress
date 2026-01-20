@@ -14,24 +14,32 @@ class HwpConverter:
         else:
             print(f"[{level.upper()}] {message}")
 
-    def convert_to_hwpx(self, input_path):
+    def initialize_hwp(self):
+        if self.hwp is None:
+            try:
+                self.log("Initializing Hancom Office instance...")
+                self.hwp = Hwp(visible=False)
+                return True
+            except Exception as e:
+                self.log(f"Failed to initialize HWP: {str(e)}", "error")
+                return False
+        return True
+
+    def quit_hwp(self):
+        if self.hwp:
+            try:
+                self.hwp.quit()
+            except Exception:
+                pass
+            self.hwp = None
+
+    def _convert_file_internal(self, input_path):
+        """Internal method to convert a single file using the existing self.hwp instance."""
         input_path = os.path.abspath(input_path)
-        if not os.path.exists(input_path):
-            self.log(f"File not found: {input_path}", "error")
-            return False
-
         file_name, ext = os.path.splitext(input_path)
-        if ext.lower() != '.hwp':
-            self.log(f"Skipping non-HWP file: {input_path}", "warning")
-            return False
-
         output_path = f"{file_name}.hwpx"
         
         try:
-            self.log(f"Initializing Hancom Office...")
-            # pyhwpx Hwp() automatically handles initialization and visible=True/False
-            self.hwp = Hwp(visible=False)
-            
             self.log(f"Opening file: {input_path}")
             self.hwp.open(input_path)
             
@@ -50,21 +58,31 @@ class HwpConverter:
                         success = True
                         break
                     else:
-                        self.log(f"Warning: save_as returned True but file is not a valid ZIP (HWPX). It might be legacy binary. Retrying...", "warning")
+                        self.log(f"Warning: save_as returned True but file is not a valid ZIP (HWPX). Retrying...", "warning")
                 else:
                      self.log(f"save_as({fmt}) returned False.")
             
-            self.hwp.quit()
+            # Close the current document to free memory, but keep HWP instance open
+            self.hwp.clear() 
             return success
 
         except Exception as e:
-            self.log(f"Error during conversion: {str(e)}", "error")
-            if self.hwp:
-                try:
-                    self.hwp.quit()
-                except:
-                    pass
+            self.log(f"Error during conversion of {input_path}: {str(e)}", "error")
             return False
+
+    def convert_to_hwpx(self, input_path):
+        """Convert a single file. Manages HWP lifecycle (Init -> Convert -> Quit)."""
+        if not os.path.exists(input_path):
+            self.log(f"File not found: {input_path}", "error")
+            return False
+            
+        try:
+            if self.initialize_hwp():
+                result = self._convert_file_internal(input_path)
+                return result
+            return False
+        finally:
+            self.quit_hwp()
 
     def is_zip_file(self, filepath):
         try:
@@ -74,20 +92,47 @@ class HwpConverter:
         except Exception:
             return False
 
-    def convert_directory(self, input_dir):
+    def convert_directory(self, input_dir, progress_callback=None):
+        """Convert a directory of files. Manages HWP lifecycle (Init -> Loop -> Quit)."""
         input_dir = os.path.abspath(input_dir)
         if not os.path.exists(input_dir):
             self.log(f"Directory not found: {input_dir}", "error")
             return
 
         self.log(f"Scanning directory: {input_dir}")
-        count = 0
+        
+        # 1. Count total files first
+        total_files = 0
+        hwp_files = []
         for root, dirs, files in os.walk(input_dir):
             for file in files:
                 if file.lower().endswith('.hwp'):
-                    full_path = os.path.join(root, file)
-                    # Skip if hwpx already exists? Optional.
-                    if self.convert_to_hwpx(full_path):
-                        count += 1
+                    hwp_files.append(os.path.join(root, file))
+        
+        total_files = len(hwp_files)
+        if total_files == 0:
+            self.log("No HWP files found.")
+            return
+
+        self.log(f"Found {total_files} HWP files.")
+
+        # Initialize Once
+        if not self.initialize_hwp():
+            return
+
+        count = 0
+        try:
+            for idx, full_path in enumerate(hwp_files, 1):
+                # Use internal method that reuses self.hwp
+                if self._convert_file_internal(full_path):
+                    count += 1
+                
+                # Update progress
+                if progress_callback:
+                    progress_callback(idx, total_files)
+                    
+        finally:
+            # Quit Once
+            self.quit_hwp()
                         
         self.log(f"Batch conversion complete. Converted {count} files.")
