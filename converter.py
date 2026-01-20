@@ -1,7 +1,6 @@
+from pyhwpx import Hwp
 import os
 import time
-import win32com.client
-import pythoncom
 import threading
 
 class HwpConverter:
@@ -28,39 +27,52 @@ class HwpConverter:
 
         output_path = f"{file_name}.hwpx"
         
-        # Initialize COM in this thread
-        pythoncom.CoInitialize()
-        
         try:
             self.log(f"Initializing Hancom Office...")
-            self.hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
-            self.hwp.RegisterModule("FilePathCheckDLL", "FilePathCheckerModule") # Security module bypass if needed/possible
+            # pyhwpx Hwp() automatically handles initialization and visible=True/False
+            self.hwp = Hwp(visible=False)
             
             self.log(f"Opening file: {input_path}")
-            self.hwp.Open(input_path)
+            self.hwp.open(input_path)
             
             self.log(f"Saving as: {output_path}")
-            # Format "HWPX" is usually "HWPX" or equivalent in HWP automation API. 
-            # Often it's HWP format "download". 
-            # For HWPX specifically, we verify the format string.
-            # Using SaveAs with format="HWPX"
-            success = self.hwp.SaveAs(output_path, "HWPX")
             
-            if success:
-                self.log(f"Conversion successful: {output_path}")
-                return True
-            else:
-                self.log(f"Conversion failed (SaveAs returned False).", "error")
-                return False
+            # Try saving with "HWPX" format
+            formats_to_try = ["HWPX", "KB_HWPX", "HWPML2X"] 
+            success = False
+            
+            for fmt in formats_to_try:
+                self.log(f"Attempting conversion with format: {fmt}")
+                if self.hwp.save_as(output_path, format=fmt):
+                    # Verify signature
+                    if self.is_zip_file(output_path):
+                        self.log(f"Conversion successful with format {fmt}: {output_path}")
+                        success = True
+                        break
+                    else:
+                        self.log(f"Warning: save_as returned True but file is not a valid ZIP (HWPX). It might be legacy binary. Retrying...", "warning")
+                else:
+                     self.log(f"save_as({fmt}) returned False.")
+            
+            self.hwp.quit()
+            return success
 
         except Exception as e:
             self.log(f"Error during conversion: {str(e)}", "error")
-            return False
-        finally:
             if self.hwp:
-                self.hwp.Quit()
-                self.hwp = None
-            pythoncom.CoUninitialize()
+                try:
+                    self.hwp.quit()
+                except:
+                    pass
+            return False
+
+    def is_zip_file(self, filepath):
+        try:
+            with open(filepath, 'rb') as f:
+                header = f.read(4)
+            return header == b'\x50\x4b\x03\x04'
+        except Exception:
+            return False
 
     def convert_directory(self, input_dir):
         input_dir = os.path.abspath(input_dir)

@@ -1,5 +1,15 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
+import sys
+
+try:
+    import win32com.client
+except ImportError:
+    root = tk.Tk()
+    root.withdraw()  # Hide the main window
+    messagebox.showerror("Error", "Required modules not found.\nPlease run the application using 'run.bat' or activate the virtual environment first.\n\nError: No module named 'win32com'")
+    sys.exit(1)
+
 import threading
 import os
 from converter import HwpConverter

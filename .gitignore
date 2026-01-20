@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# VS Code
+.vscode/
+
+# HWPX Output (Optional, but usually we want to keep source/output separate from git if testing)
+# *.hwpx
+
+# Distribution
+dist/
+build/
+*.spec
